@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FluSignal — Influenza risk near you</title>
+  <meta name="description" content="A CDC-connected influenza activity dashboard for U.S. cities." />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <style>
+    :root {
+      --ink: #17222d;
+      --muted: #6b7b86;
+      --line: #dce6ea;
+      --paper: #f7fbfa;
+      --card: #ffffff;
+      --teal: #0d867d;
+      --teal-dark: #09665f;
+      --mint: #dff4ef;
+      --amber: #f1ad3a;
+      --coral: #d96756;
+      --navy: #1c3b4a;
+      --shadow: 0 12px 34px rgba(23, 55, 62, .08);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    a { color: inherit; }
+    button, select { font: inherit; }
+
+    .shell { max-width: 1500px; margin: 0 auto; padding: 0 28px 36px; }
+    .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .brand-mark { width: 37px; height: 37px; display: grid; place-items: center; border-radius: 11px; color: white; background: var(--teal); box-shadow: 0 5px 15px rgba(13,134,125,.24); }
+    .brand-mark svg { width: 21px; }
+    .brand-name { font-size: 16px; font-weight: 760; letter-spacing: -.03em; }
+    .brand-sub { color: var(--muted); font-size: 11px; margin-top: 1px; }
+    .live-status { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
+    .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #54b47e; box-shadow: 0 0 0 4px #ddf2e6; }
+    .live-dot.offline { background: var(--amber); box-shadow: 0 0 0 4px #fff1d5; }
+
+    .hero { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; padding: 24px 0 30px; }
+    .eyebrow { color: var(--teal); text-transform: uppercase; letter-spacing: .12em; font-size: 11px; font-weight: 800; margin-bottom: 11px; }
+    h1 { margin: 0; max-width: 660px; font-size: clamp(30px, 4vw, 47px); line-height: 1.03; letter-spacing: -.065em; font-weight: 760; }
+    .hero-copy { max-width: 620px; color: var(--muted); margin: 15px 0 0; font-size: 15px; }
+    .location-picker { min-width: 310px; background: var(--navy); border-radius: 15px; color: white; padding: 14px 15px 15px; box-shadow: 0 14px 28px rgba(28,59,74,.14); }
+    .location-label { color: #abc4ca; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; font-weight: 780; margin-bottom: 8px; }
+    .select-wrap { position: relative; }
+    .select-wrap:after { content: "⌄"; pointer-events: none; position: absolute; right: 12px; top: 7px; color: #6a858d; font-size: 19px; }
+    select { appearance: none; width: 100%; border: 1px solid rgba(255,255,255,.14); background: #284b59; color: white; border-radius: 9px; padding: 10px 33px 10px 11px; outline: none; cursor: pointer; }
+    select:focus { border-color: #6bd1c3; box-shadow: 0 0 0 3px rgba(107,209,195,.18); }
+
+    .grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(330px, .8fr); gap: 18px; }
+    .card { background: var(--card); border: 1px solid rgba(210,224,226,.82); border-radius: var(--radius); box-shadow: var(--shadow); }
+    .map-card { overflow: hidden; min-height: 580px; position: relative; }
+    .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 20px 22px 14px; }
+    .card-title { margin: 0; font-size: 15px; font-weight: 760; letter-spacing: -.02em; }
+    .card-kicker { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .map-controls { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+    .toggle { border: 1px solid var(--line); background: #fbfdfd; color: var(--muted); border-radius: 99px; padding: 7px 10px; cursor: pointer; font-size: 11px; font-weight: 700; }
+    .toggle.active { background: var(--mint); border-color: #b8e4dc; color: var(--teal-dark); }
+    #map { height: 452px; width: 100%; background: #e7f0ee; }
+    .map-footer { padding: 13px 22px 17px; display: flex; gap: 16px; align-items: center; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .legend { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+    .map-note { max-width: 420px; text-align: right; }
+
+    .side { display: grid; gap: 18px; align-content: start; }
+    .risk-card { padding: 22px; background: var(--navy); color: white; overflow: hidden; position: relative; }
+    .risk-card:after { content: ""; position: absolute; width: 180px; height: 180px; border: 1px solid rgba(142, 211, 200, .22); border-radius: 50%; right: -58px; top: -55px; box-shadow: 0 0 0 22px rgba(142,211,200,.035), 0 0 0 44px rgba(142,211,200,.035); }
+    .risk-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; position: relative; z-index: 1; }
+    .risk-title { color: #b8d0d3; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 800; }
+    .risk-value { font-size: 47px; line-height: .95; letter-spacing: -.07em; font-weight: 770; margin-top: 12px; }
+    .risk-value small { font-size: 18px; letter-spacing: -.03em; color: #94b9be; font-weight: 500; }
+    .risk-badge { padding: 6px 9px; border-radius: 99px; background: rgba(80,185,157,.16); color: #9be0c3; font-size: 11px; font-weight: 750; white-space: nowrap; }
+    .risk-badge.warn { background: rgba(241,173,58,.16); color: #ffd386; }
+    .risk-copy { color: #b9cdd0; margin: 18px 0 0; font-size: 12px; max-width: 300px; position: relative; z-index: 1; }
+    .risk-meta { border-top: 1px solid rgba(255,255,255,.13); margin-top: 19px; padding-top: 13px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; z-index: 1; }
+    .metric-label { color: #8ca9ae; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+    .metric-value { font-size: 14px; font-weight: 730; margin-top: 3px; }
+    .white-link { color: white; text-underline-offset: 3px; }
+
+    .mini-chart { padding: 20px 22px 17px; }
+    .chart-top { display: flex; justify-content: space-between; align-items: baseline; }
+    .chart-stat { color: var(--coral); font-weight: 760; font-size: 12px; }
+    .chart { display: flex; align-items: stretch; height: 112px; gap: 9px; padding: 17px 0 0; }
+    .chart-y { display: flex; flex-direction: column; justify-content: space-between; padding-bottom: 15px; color: #a2b0b4; font-size: 9px; }
+    .bars { display: flex; gap: 9px; align-items: flex-end; height: 100%; flex: 1; border-bottom: 1px solid var(--line); background: repeating-linear-gradient(to bottom, transparent 0, transparent 26px, #eef3f2 27px); }
+    .bar-col { height: 100%; display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; }
+    .bar { width: 100%; max-width: 27px; border-radius: 4px 4px 0 0; background: #bfe7de; min-height: 8px; transition: height .4s ease; }
+    .bar.current { background: var(--coral); }
+    .bar-label { font-size: 9px; color: #9ba9ad; position: absolute; transform: translateY(17px); }
+    .chart-source { margin-top: 14px; color: var(--muted); font-size: 11px; }
+
+    .signal-list { padding: 20px 22px 22px; }
+    .signal-row { display: flex; gap: 11px; padding: 12px 0; border-bottom: 1px solid #edf2f2; }
+    .signal-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .signal-icon { width: 27px; height: 27px; border-radius: 9px; display: grid; place-items: center; background: #e6f5f1; color: var(--teal); flex: 0 0 auto; }
+    .signal-icon.amber { background: #fff3dc; color: #b8780f; }
+    .signal-icon.coral { background: #fbe8e5; color: var(--coral); }
+    .signal-name { font-weight: 750; font-size: 12px; }
+    .signal-detail { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .status-pill { margin-left: auto; align-self: flex-start; font-size: 10px; color: var(--teal-dark); background: var(--mint); border-radius: 99px; padding: 4px 7px; white-space: nowrap; }
+    .status-pill.amber { color: #9d6810; background: #fff1d4; }
+
+    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+    .info-card { padding: 21px 22px 22px; }
+    .info-card .card-head { padding: 0 0 14px; }
+    .feed-item { padding: 13px 0; border-top: 1px solid #edf2f2; display: flex; gap: 13px; align-items: flex-start; }
+    .feed-date { color: var(--teal); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; min-width: 69px; padding-top: 2px; }
+    .feed-title { font-size: 12px; line-height: 1.35; font-weight: 710; }
+    .feed-desc { color: var(--muted); font-size: 11px; margin-top: 3px; }
+    .external { color: var(--teal); text-decoration: none; }
+    .external:hover { text-decoration: underline; }
+    .action { border: 1px solid var(--line); background: white; border-radius: 8px; padding: 6px 8px; color: var(--teal-dark); font-size: 11px; font-weight: 720; text-decoration: none; white-space: nowrap; }
+    .action:hover { border-color: #9bd6cc; background: #f2fbf8; }
+
+    .disclaimer { color: var(--muted); font-size: 11px; line-height: 1.5; padding: 20px 2px 0; display: flex; justify-content: space-between; gap: 20px; }
+    .disclaimer span { max-width: 830px; }
+    .source-links { display: flex; gap: 14px; white-space: nowrap; }
+
+    .leaflet-control-zoom a { color: var(--navy) !important; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--navy); color: white; }
+    .leaflet-popup-content { margin: 13px 15px; font: 12px/1.45 Inter, sans-serif; }
+    .popup-title { font-size: 13px; font-weight: 750; margin-bottom: 4px; }
+    .popup-detail { color: #bbd0d2; }
+    .pin { width: 20px; height: 20px; border-radius: 50% 50% 50% 0; background: var(--coral); transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 2px 9px rgba(19,48,57,.25); }
+    .pin:after { content: ""; display: block; width: 6px; height: 6px; border-radius: 50%; background: white; margin: 4px; }
+
+    @media (max-width: 980px) {
+      .hero { align-items: stretch; flex-direction: column; }
+      .location-picker { min-width: 0; max-width: 430px; }
+      .grid { grid-template-columns: 1fr; }
+      .side { grid-template-columns: 1fr 1fr; }
+      .risk-card { grid-row: span 2; }
+      .bottom-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 650px) {
+      .shell { padding: 0 16px 28px; }
+      .topbar { height: 66px; }
+      .live-status { font-size: 10px; }
+      .hero { padding-top: 18px; }
+      .side { display: grid; grid-template-columns: 1fr; }
+      .risk-card { grid-row: auto; }
+      .map-card { min-height: 0; }
+      .card-head { flex-direction: column; }
+      .map-controls { justify-content: flex-start; }
+      #map { height: 360px; }
+      .map-footer { align-items: flex-start; flex-direction: column; }
+      .map-note { text-align: left; }
+      .disclaimer { flex-direction: column; }
+      .source-links { white-space: normal; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="FluSignal home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4v16M4 12h16M6.3 6.3l11.4 11.4M17.7 6.3 6.3 17.7"/><circle cx="12" cy="12" r="8.6"/></svg>
+        </span>
+        <span><span class="brand-name">FluSignal</span><span class="brand-sub">A clearer read on respiratory risk</span></span>
+      </a>
+      <div class="live-status"><span class="live-dot" id="liveDot"></span><span id="connectionStatus">Connecting to CDC data…</span></div>
+    </header>
+
+    <section class="hero" id="top">
+      <div>
+        <div class="eyebrow">Local influenza intelligence</div>
+        <h1>Know what flu activity looks like where you are.</h1>
+        <p class="hero-copy">Choose a U.S. city to see the latest CDC respiratory-illness signal, relevant alerts, and practical guidance from your local public health department.</p>
+      </div>
+      <div class="location-picker">
+        <div class="location-label">Your focus area</div>
+        <div class="select-wrap"><select id="citySelect" aria-label="Select a U.S. city"></select></div>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="Influenza risk overview">
+      <article class="card map-card">
+        <div class="card-head">
+          <div><h2 class="card-title">Live CDC activity map</h2><div class="card-kicker" id="mapKicker">State-level signal around New York City</div></div>
+          <div class="map-controls" role="group" aria-label="Map layers">
+            <button class="toggle active" data-layer="activity">Activity</button>
+            <button class="toggle" data-layer="alerts">Alerts</button>
+            <button class="toggle" data-layer="guidance">Guidance</button>
+          </div>
+        </div>
+        <div id="map" aria-label="Map showing selected city and public health signals"></div>
+        <div class="map-footer">
+          <div class="legend"><span><i style="background:#54b47e"></i>Minimal</span><span><i style="background:#f1ad3a"></i>Moderate</span><span><i style="background:#d96756"></i>High</span><span><i style="background:#1c3b4a"></i>Selected city</span></div>
+          <div class="map-note">Detailed street basemap with a built-in vector fallback. CDC activity is reported by state; it is a directional community signal, not a diagnosis.</div>
+        </div>
+      </article>
+
+      <aside class="side">
+        <article class="card risk-card">
+          <div class="risk-top"><div><div class="risk-title">Current risk picture</div><div class="risk-value" id="riskValue">— <small>/ 13</small></div></div><div class="risk-badge" id="riskBadge">Loading</div></div>
+          <p class="risk-copy" id="riskCopy">Pulling the latest CDC activity signal for your selected area.</p>
+          <div class="risk-meta"><div><div class="metric-label">Selected area</div><div class="metric-value" id="selectedArea">New York City, NY</div></div><div><div class="metric-label">CDC week ending</div><div class="metric-value" id="weekEnding">—</div></div></div>
+        </article>
+
+        <article class="card mini-chart">
+          <div class="chart-top"><div><h2 class="card-title">Recent movement</h2><div class="card-kicker">CDC activity level, latest weeks</div></div><div class="chart-stat" id="trendStat">—</div></div>
+          <div class="chart"><div class="chart-y"><span>High</span><span>Moderate</span><span>Low</span></div><div class="bars" id="trendBars"></div></div>
+          <div class="chart-source">Activity levels compare ILI visits with the jurisdiction’s baseline.</div>
+        </article>
+
+        <article class="card signal-list">
+          <div class="card-head" style="padding:0 0 4px"><div><h2 class="card-title">Signals to know</h2><div class="card-kicker">What’s relevant for this location</div></div></div>
+          <div id="signalList"></div>
+        </article>
+      </aside>
+    </section>
+
+    <section class="bottom-grid">
+      <article class="card info-card">
+        <div class="card-head"><div><h2 class="card-title">CDC alerts & advisories</h2><div class="card-kicker">Official sources worth checking before you go</div></div><a class="action" href="https://emergency.cdc.gov/han/" target="_blank" rel="noreferrer">Open CDC HAN ↗</a></div>
+        <div class="feed-item"><div class="feed-date">FluView</div><div><a class="feed-title external" href="https://www.cdc.gov/fluview/" target="_blank" rel="noreferrer">Weekly U.S. Influenza Surveillance Report ↗</a><div class="feed-desc">National and regional activity, virologic surveillance, hospitalizations, and mortality. Updated weekly by CDC.</div></div></div>
+        <div class="feed-item"><div class="feed-date">Alert center</div><div><a class="feed-title external" href="https://emergency.cdc.gov/han/" target="_blank" rel="noreferrer">CDC Health Alert Network (HAN) ↗</a><div class="feed-desc">The CDC’s formal alert channel for urgent public health advisories and health updates.</div></div></div>
+        <div class="feed-item"><div class="feed-date">Outbreaks</div><div><a class="feed-title external" href="https://www.cdc.gov/flu/avianflu/spotlights/" target="_blank" rel="noreferrer">Novel and avian influenza updates ↗</a><div class="feed-desc">Track CDC updates on novel influenza A infections and animal-to-human exposure investigations.</div></div></div>
+      </article>
+
+      <article class="card info-card">
+        <div class="card-head"><div><h2 class="card-title">Local guidance</h2><div class="card-kicker" id="localGuidanceKicker">For New York City, New York</div></div><a class="action" id="localGuidanceLink" href="https://www.nyc.gov/site/doh/health/health-topics/flu.page" target="_blank" rel="noreferrer">Visit health dept ↗</a></div>
+        <div class="feed-item"><div class="feed-date">Protect</div><div><div class="feed-title">Stay up to date on seasonal flu vaccination.</div><div class="feed-desc">CDC recommends annual flu vaccination for everyone 6 months and older, with rare exceptions.</div></div></div>
+        <div class="feed-item"><div class="feed-date">When sick</div><div><div class="feed-title">Stay home, improve ventilation, and consider a mask around others.</div><div class="feed-desc">Contact a clinician early if you are at higher risk or symptoms are severe; antivirals work best when started promptly.</div></div></div>
+        <div class="feed-item"><div class="feed-date">Local source</div><div><a class="feed-title external" id="localGuidanceText" href="https://www.nyc.gov/site/doh/health/health-topics/flu.page" target="_blank" rel="noreferrer">New York City Department of Health flu guidance ↗</a><div class="feed-desc">Use the local department for clinics, school guidance, and location-specific notices.</div></div></div>
+      </article>
+    </section>
+
+    <footer class="disclaimer"><span><strong>How to read this:</strong> This dashboard combines CDC’s weekly state-level respiratory illness activity data with official CDC and local health department resources. Surveillance data are preliminary and may be revised. This is not medical advice or a diagnosis.</span><span class="source-links"><a class="external" href="https://data.cdc.gov/Public-Health-Surveillance/Level-of-Acute-Respiratory-Illness-ARI-Activity-by/f3zz-zga5" target="_blank" rel="noreferrer">CDC data source ↗</a><a class="external" href="https://www.cdc.gov/fluview/overview/index.html" target="_blank" rel="noreferrer">Methods ↗</a></span></footer>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const cities = {
+      nyc: { name: 'New York City', state: 'NY', stateName: 'New York', coords: [40.7128, -74.006], guidance: 'https://www.nyc.gov/site/doh/health/health-topics/flu.page', guidanceName: 'New York City Department of Health' },
+      la: { name: 'Los Angeles', state: 'CA', stateName: 'California', coords: [34.0522, -118.2437], guidance: 'http://publichealth.lacounty.gov/acd/flu.htm', guidanceName: 'Los Angeles County Department of Public Health' },
+      chicago: { name: 'Chicago', state: 'IL', stateName: 'Illinois', coords: [41.8781, -87.6298], guidance: 'https://www.chicago.gov/city/en/depts/cdph/provdrs/health_protection_and_response/svcs/influenza.html', guidanceName: 'Chicago Department of Public Health' },
+      houston: { name: 'Houston', state: 'TX', stateName: 'Texas', coords: [29.7604, -95.3698], guidance: 'https://www.houstonhealth.org/services/flu', guidanceName: 'Houston Health Department' },
+      phoenix: { name: 'Phoenix', state: 'AZ', stateName: 'Arizona', coords: [33.4484, -112.074], guidance: 'https://www.azdhs.gov/preparedness/epidemiology-disease-control/flu/index.php', guidanceName: 'Arizona Department of Health Services' },
+      philadelphia: { name: 'Philadelphia', state: 'PA', stateName: 'Pennsylvania', coords: [39.9526, -75.1652], guidance: 'https://www.phila.gov/departments/public-health/', guidanceName: 'Philadelphia Department of Public Health' },
+      sanantonio: { name: 'San Antonio', state: 'TX', stateName: 'Texas', coords: [29.4241, -98.4936], guidance: 'https://www.sanantonio.gov/Health/News/HealthyNews', guidanceName: 'San Antonio Metropolitan Health District' },
+      sandiego: { name: 'San Diego', state: 'CA', stateName: 'California', coords: [32.7157, -117.1611], guidance: 'https://www.sandiegocounty.gov/content/sdc/hhsa/programs/phs/community_epidemiology/dc/flu.html', guidanceName: 'San Diego County Health & Human Services' },
+      seattle: { name: 'Seattle', state: 'WA', stateName: 'Washington', coords: [47.6062, -122.3321], guidance: 'https://kingcounty.gov/en/dept/dph/health-safety/disease-illness/flu', guidanceName: 'Public Health — Seattle & King County' },
+      denver: { name: 'Denver', state: 'CO', stateName: 'Colorado', coords: [39.7392, -104.9903], guidance: 'https://cdphe.colorado.gov/flu', guidanceName: 'Colorado Department of Public Health' },
+      atlanta: { name: 'Atlanta', state: 'GA', stateName: 'Georgia', coords: [33.749, -84.388], guidance: 'https://dph.georgia.gov/epidemiology/flu', guidanceName: 'Georgia Department of Public Health' },
+      boston: { name: 'Boston', state: 'MA', stateName: 'Massachusetts', coords: [42.3601, -71.0589], guidance: 'https://www.mass.gov/info-details/influenza-flu', guidanceName: 'Massachusetts Department of Public Health' },
+      minneapolis: { name: 'Minneapolis', state: 'MN', stateName: 'Minnesota', coords: [44.9778, -93.265], guidance: 'https://www.health.state.mn.us/diseases/flu/index.html', guidanceName: 'Minnesota Department of Health' },
+      portland: { name: 'Portland', state: 'OR', stateName: 'Oregon', coords: [45.5152, -122.6784], guidance: 'https://www.oregon.gov/oha/ph/diseasesconditions/diseasesaz/pages/flu.aspx', guidanceName: 'Oregon Health Authority' },
+      dc: { name: 'Washington, D.C.', state: 'DC', stateName: 'District of Columbia', coords: [38.9072, -77.0369], guidance: 'https://dchealth.dc.gov/page/influenza', guidanceName: 'DC Health' }
+    };
+
+    const fallback = {
+      NY: { level: 6, label: 'Moderate', week: 'Latest CDC update', trend: [4,5,5,6,6,6] }, CA: { level: 4, label: 'Low', week: 'Latest CDC update', trend: [5,4,4,4,4,4] }, IL: { level: 5, label: 'Low', week: 'Latest CDC update', trend: [3,4,4,5,5,5] }, TX: { level: 5, label: 'Low', week: 'Latest CDC update', trend: [4,4,5,5,5,5] }, AZ: { level: 3, label: 'Minimal', week: 'Latest CDC update', trend: [3,3,3,3,3,3] }, PA: { level: 6, label: 'Moderate', week: 'Latest CDC update', trend: [5,5,5,6,6,6] }, WA: { level: 4, label: 'Low', week: 'Latest CDC update', trend: [4,4,4,4,4,4] }, CO: { level: 4, label: 'Low', week: 'Latest CDC update', trend: [3,3,4,4,4,4] }, GA: { level: 5, label: 'Low', week: 'Latest CDC update', trend: [4,4,4,5,5,5] }, MA: { level: 6, label: 'Moderate', week: 'Latest CDC update', trend: [5,5,6,6,6,6] }, MN: { level: 5, label: 'Low', week: 'Latest CDC update', trend: [4,4,4,5,5,5] }, OR: { level: 4, label: 'Low', week: 'Latest CDC update', trend: [3,4,4,4,4,4] }, DC: { level: 6, label: 'Moderate', week: 'Latest CDC update', trend: [5,5,6,6,6,6] } };
+    const cdcEndpoint = 'https://data.cdc.gov/resource/f3zz-zga5.json?$limit=5000';
+    let liveRows = [];
+    let liveData = false;
+    let currentKey = 'nyc';
+    let currentLayer = 'activity';
+    let map, selectedMarker, stateLayer, streetLayer, vectorBaseLayer;
+    let streetLayerActive = false;
+
+    const $ = id => document.getElementById(id);
+    const citySelect = $('citySelect');
+    Object.entries(cities).forEach(([key, city]) => { citySelect.add(new Option(`${city.name}, ${city.state}`, key)); });
+    citySelect.value = currentKey;
+
+    function normalizeKey(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+    function getField(row, aliases) {
+      const keys = Object.keys(row);
+      const exact = aliases.map(normalizeKey);
+      const key = keys.find(k => exact.includes(normalizeKey(k)) || exact.some(alias => normalizeKey(k).includes(alias)));
+      return key ? row[key] : '';
+    }
+    function stateMatches(row, city) {
+      const value = String(getField(row, ['state','state_abbr','state_code','location_abbr','jurisdiction','area','geography']) || '').toLowerCase();
+      return value.includes(city.state.toLowerCase()) || value.includes(city.stateName.toLowerCase());
+    }
+    function parseDate(row) { const value = getField(row, ['week_end','week_ending','week_ending_date','weekending','date','report_date','data_date']); const date = Date.parse(value); return Number.isNaN(date) ? 0 : date; }
+    function parseLevel(row) {
+      const raw = getField(row, ['activity_level','ari_activity_level','level','activity','category','risk_level','label']);
+      const number = Number(String(raw).match(/[0-9]+(?:\.[0-9]+)?/)?.[0]);
+      if (number >= 1 && number <= 13) return Math.round(number);
+      const text = String(raw).toLowerCase();
+      if (text.includes('data unavailable')) return 0;
+      if (text.includes('very low')) return 2;
+      if (text.includes('very high')) return 12;
+      if (text.includes('high')) return 9;
+      if (text.includes('moderate')) return 6;
+      if (text.includes('low')) return 4;
+      return 2;
+    }
+    function labelFor(level) { if (level >= 11) return 'Very high'; if (level >= 8) return 'High'; if (level >= 6) return 'Moderate'; if (level >= 4) return 'Low'; return 'Very low'; }
+    function formatDate(value) { if (!value || value === 'Latest CDC update') return value || '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+    function getStateRows(city) { return liveRows.filter(row => stateMatches(row, city)).sort((a,b) => parseDate(b)-parseDate(a)); }
+    function signalFor(city) {
+      const rows = getStateRows(city);
+      if (!rows.length) return { ...(fallback[city.state] || fallback.NY), live: false };
+      const latest = rows[0];
+      const level = parseLevel(latest);
+      if (!level) return { ...(fallback[city.state] || fallback.NY), live: false };
+      const history = rows.slice(0, 6).reverse().map(row => parseLevel(row));
+      return { level, label: labelFor(level), week: getField(latest, ['week_end','week_ending','week_ending_date','weekending','date','report_date','data_date']) || 'Latest CDC update', trend: history.length ? history : [level], live: true };
+    }
+    function riskColor(level) { return level >= 8 ? '#d96756' : level >= 6 ? '#f1ad3a' : '#54b47e'; }
+    function riskCopy(level, city) { if (level >= 8) return `CDC reports elevated respiratory illness activity across ${city.stateName}. Consider extra precautions in crowded indoor settings.`; if (level >= 6) return `CDC reports a moderate respiratory illness signal across ${city.stateName}. Stay current on vaccination and watch for local updates.`; return `CDC reports a lower respiratory illness signal across ${city.stateName}. Routine prevention still matters, especially around vulnerable people.`; }
+
+    function renderCity() {
+      const city = cities[currentKey];
+      const signal = signalFor(city);
+      $('selectedArea').textContent = `${city.name}, ${city.state}`;
+      $('weekEnding').textContent = formatDate(signal.week);
+      $('riskValue').innerHTML = signal.label;
+      $('riskBadge').textContent = signal.label;
+      $('riskBadge').className = `risk-badge${signal.level >= 6 ? ' warn' : ''}`;
+      $('riskCopy').textContent = riskCopy(signal.level, city);
+      $('mapKicker').textContent = `${signal.live ? 'CDC state-level signal' : 'Fallback snapshot'} · detailed street view around ${city.name}`;
+      $('trendStat').textContent = signal.trend.length > 1 ? `${signal.trend.at(-1) >= signal.trend.at(-2) ? '↗' : '↘'} ${Math.abs(signal.trend.at(-1) - signal.trend.at(-2)) || 'steady'}` : 'steady';
+      $('trendBars').innerHTML = signal.trend.map((value, index) => `<div class="bar-col"><div class="bar${index === signal.trend.length - 1 ? ' current' : ''}" style="height:${Math.max(8, value / 13 * 79)}px" title="Level ${value}"></div><span class="bar-label">${index === signal.trend.length - 1 ? 'now' : ''}</span></div>`).join('');
+      renderSignals(city, signal);
+      renderGuidance(city);
+      updateMap(city, signal);
+    }
+    function renderSignals(city, signal) {
+      const stateLink = `https://www.cdc.gov/fluview/`;
+      const rows = [
+        { icon: '↗', cls: signal.level >= 8 ? 'coral' : signal.level >= 6 ? 'amber' : '', name: 'CDC activity signal', detail: `${signal.label} in ${city.stateName} · ${signal.live ? 'live feed' : 'snapshot fallback'}`, status: signal.live ? 'LIVE' : 'OFFLINE' },
+        { icon: '⌁', cls: 'amber', name: 'CDC FluView', detail: 'Weekly surveillance, labs, hospitalizations', status: 'WEEKLY' },
+        { icon: '!', cls: 'coral', name: 'Health Alert Network', detail: 'Formal CDC advisories and urgent updates', status: 'CHECK' }
+      ];
+      $('signalList').innerHTML = rows.map(row => `<div class="signal-row"><div class="signal-icon ${row.cls}">${row.icon}</div><div><div class="signal-name">${row.name}</div><div class="signal-detail">${row.detail}</div></div><span class="status-pill ${row.status === 'CHECK' ? 'amber' : ''}">${row.status}</span></div>`).join('');
+    }
+    function renderGuidance(city) {
+      $('localGuidanceKicker').textContent = `For ${city.name}, ${city.stateName}`;
+      $('localGuidanceLink').href = city.guidance;
+      $('localGuidanceText').href = city.guidance;
+      $('localGuidanceText').textContent = `${city.guidanceName} flu guidance ↗`;
+    }
+
+    function makeIcon(color) { return L.divIcon({ className: '', html: `<div class="pin" style="background:${color}"></div>`, iconSize: [20,20], iconAnchor: [10,20], popupAnchor: [0,-18] }); }
+    function createVectorBaseLayer() {
+      const usOutline = [[49.0,-125.0],[49.0,-123.0],[46.2,-124.2],[43.0,-124.4],[40.0,-124.0],[37.0,-122.5],[34.5,-120.5],[32.5,-117.1],[31.0,-114.7],[31.3,-109.0],[29.5,-103.0],[26.0,-97.5],[25.8,-81.8],[28.0,-80.0],[30.5,-81.3],[32.0,-79.8],[34.5,-78.8],[36.5,-75.7],[39.0,-74.0],[41.5,-72.0],[45.0,-67.0],[47.5,-67.5],[47.0,-70.0],[44.5,-71.5],[43.0,-74.5],[41.5,-79.0],[42.5,-83.0],[46.0,-84.5],[47.5,-89.5],[48.8,-95.0],[49.0,-104.0],[49.0,-111.0],[49.0,-120.0],[49.0,-125.0]];
+      const vectorStyle = { color: '#b9d8d2', weight: 2, fillColor: '#e6f3ef', fillOpacity: .95, interactive: false };
+      const regionalLines = [-120,-110,-100,-90,-80,-70].map(longitude => L.polyline([[25.5, longitude],[49, longitude]], { color: '#d4e8e3', weight: 1, opacity: .7, interactive: false }));
+      return L.layerGroup([L.polygon(usOutline, vectorStyle), ...regionalLines]);
+    }
+    function activateVectorFallback() {
+      if (!map || !vectorBaseLayer) return;
+      if (streetLayer && map.hasLayer(streetLayer)) map.removeLayer(streetLayer);
+      if (!map.hasLayer(vectorBaseLayer)) vectorBaseLayer.addTo(map);
+      streetLayerActive = false;
+      map.attributionControl.addAttribution('Built-in vector outline · FluSignal');
+      map.setView(cities[currentKey].coords, 5, { animate: true });
+    }
+    function initMap() {
+      if (typeof L === 'undefined') {
+        $('map').innerHTML = '<div style="height:100%;display:grid;place-items:center;padding:30px;text-align:center;color:#6b7b86">The interactive map is temporarily unavailable. Use the CDC links below for the same official activity and alert sources.</div>';
+        return;
+      }
+      map = L.map('map', { zoomControl: true, scrollWheelZoom: false }).setView(cities[currentKey].coords, 11);
+      vectorBaseLayer = createVectorBaseLayer();
+      streetLayer = L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        minZoom: 3,
+        maxZoom: 18,
+        attribution: 'Street map tiles &copy; <a href="https://www.esri.com/" target="_blank" rel="noreferrer">Esri</a>'
+      });
+      streetLayer.once('tileerror', activateVectorFallback);
+      streetLayer.addTo(map);
+      streetLayerActive = true;
+      selectedMarker = L.marker(cities[currentKey].coords, { icon: makeIcon('#1c3b4a'), zIndexOffset: 100 }).addTo(map);
+    }
+    function updateMap(city, signal) {
+      if (!map) return;
+      map.setView(city.coords, streetLayerActive ? 11 : 5, { animate: true });
+      selectedMarker.setLatLng(city.coords).bindPopup(`<div class="popup-title">${city.name}, ${city.state}</div><div class="popup-detail">Selected location · ${signal.label} state signal</div>`);
+      if (stateLayer) map.removeLayer(stateLayer);
+      if (currentLayer === 'activity') {
+        const seenStates = new Set();
+        const markers = Object.values(cities).filter(otherCity => {
+          if (seenStates.has(otherCity.state)) return false;
+          seenStates.add(otherCity.state);
+          return true;
+        }).map(otherCity => {
+          const otherSignal = signalFor(otherCity);
+          return L.circleMarker(otherCity.coords, { radius: otherCity.state === city.state ? 11 : 7, color: '#fff', weight: 2, fillColor: riskColor(otherSignal.level), fillOpacity: .88 })
+            .bindPopup(`<div class="popup-title">${otherCity.stateName}</div><div class="popup-detail">${otherSignal.label} · CDC activity level ${otherSignal.level}/13${otherSignal.live ? '' : ' · snapshot fallback'}</div>`);
+        });
+        stateLayer = L.layerGroup(markers).addTo(map);
+      } else if (currentLayer === 'alerts') {
+        stateLayer = L.layerGroup([
+          L.marker([40.71,-74.0], {icon:makeIcon('#d96756')}).bindPopup('<div class="popup-title">CDC Health Alert Network</div><div class="popup-detail">Open the official alert center for current advisories.</div>'),
+          L.marker([38.91,-77.04], {icon:makeIcon('#f1ad3a')}).bindPopup('<div class="popup-title">CDC alert center</div><div class="popup-detail">Formal national public health alerts are linked in the dashboard.</div>'),
+          L.marker([39.95,-75.16], {icon:makeIcon('#f1ad3a')}).bindPopup('<div class="popup-title">Novel influenza updates</div><div class="popup-detail">CDC outbreak and novel influenza reporting is linked in the dashboard.</div>')
+        ]).addTo(map);
+      } else if (currentLayer === 'guidance') {
+        stateLayer = L.layerGroup([L.marker(city.coords, {icon:makeIcon('#0d867d')}).bindPopup(`<div class="popup-title">${city.guidanceName}</div><div class="popup-detail">Local flu guidance and clinic information.</div>`)]).addTo(map);
+      }
+    }
+    document.querySelectorAll('[data-layer]').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('[data-layer]').forEach(btn => btn.classList.remove('active')); button.classList.add('active'); currentLayer = button.dataset.layer; renderCity(); }));
+    citySelect.addEventListener('change', () => { currentKey = citySelect.value; renderCity(); });
+
+    async function loadCdc() {
+      try {
+        const response = await fetch(cdcEndpoint, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(`CDC responded ${response.status}`);
+        const data = await response.json();
+        if (!Array.isArray(data) || !data.length) throw new Error('No CDC rows returned');
+        liveRows = data; liveData = true;
+        $('liveDot').classList.remove('offline'); $('connectionStatus').textContent = 'Live CDC feed connected';
+        renderCity();
+      } catch (error) {
+        console.warn('CDC feed unavailable:', error);
+        $('liveDot').classList.add('offline'); $('connectionStatus').textContent = 'CDC feed unavailable · snapshot shown';
+        renderCity();
+      }
+    }
+
+    initMap();
+    renderCity();
+    loadCdc();
+  </script>
+</body>
+</html>
